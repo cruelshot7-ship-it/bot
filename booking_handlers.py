@@ -11,8 +11,8 @@ your Application:
     await set_booking_menu_button(application, miniapp_url=MINIAPP_URL)
 
 Also run booking_api.py's FastAPI app alongside your bot's existing process
-(same service, same DB_PATH as your bot already uses) — see the note at
-the bottom of booking_api.py for the combined-run snippet.
+(same service, same DATABASE_URL as your bot already uses) — see the note
+at the bottom of booking_api.py for the combined-run snippet.
 
 Trainer commands this adds:
     /clients                          - list everyone who's opened the mini app, with their Telegram id
@@ -50,7 +50,7 @@ def register_booking_handlers(application: Application, trainer_tg_id: int):
         conn = get_conn()
         slot_id = f"{date}_{time_}"
         conn.execute(
-            "INSERT OR REPLACE INTO slots (id, date, time, duration, capacity) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO slots (id, date, time, duration, capacity) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET date = EXCLUDED.date, time = EXCLUDED.time, duration = EXCLUDED.duration, capacity = EXCLUDED.capacity",
             (slot_id, date, time_, duration, capacity),
         )
         conn.commit()
@@ -65,7 +65,7 @@ def register_booking_handlers(application: Application, trainer_tg_id: int):
             return
         date = context.args[0]
         conn = get_conn()
-        slots = conn.execute("SELECT * FROM slots WHERE date = ? ORDER BY time", (date,)).fetchall()
+        slots = conn.execute("SELECT * FROM slots WHERE date = %s ORDER BY time", (date,)).fetchall()
         if not slots:
             await update.message.reply_text(f"На {date} слотов нет.")
             conn.close()
@@ -73,7 +73,7 @@ def register_booking_handlers(application: Application, trainer_tg_id: int):
         lines = []
         for s in slots:
             names = conn.execute(
-                "SELECT client_name FROM bookings WHERE slot_id = ? AND status = 'active'",
+                "SELECT client_name FROM bookings WHERE slot_id = %s AND status = 'active'",
                 (s["id"],),
             ).fetchall()
             names_str = ", ".join(n["client_name"] for n in names) if names else "пусто"
@@ -116,8 +116,8 @@ def register_booking_handlers(application: Application, trainer_tg_id: int):
         text = " ".join(context.args[1:])
         conn = get_conn()
         conn.execute(
-            "INSERT INTO client_profiles (telegram_id, program_text, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(telegram_id) DO UPDATE SET program_text=excluded.program_text, updated_at=excluded.updated_at",
+            "INSERT INTO client_profiles (telegram_id, program_text, updated_at) VALUES (%s, %s, %s) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET program_text=EXCLUDED.program_text, updated_at=EXCLUDED.updated_at",
             (client_id, text, datetime.utcnow().isoformat()),
         )
         conn.commit()
@@ -141,9 +141,9 @@ def register_booking_handlers(application: Application, trainer_tg_id: int):
         conn = get_conn()
         conn.execute(
             "INSERT INTO client_profiles (telegram_id, calories, protein, fat, carbs, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(telegram_id) DO UPDATE SET calories=excluded.calories, protein=excluded.protein, "
-            "fat=excluded.fat, carbs=excluded.carbs, updated_at=excluded.updated_at",
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET calories=EXCLUDED.calories, protein=EXCLUDED.protein, "
+            "fat=EXCLUDED.fat, carbs=EXCLUDED.carbs, updated_at=EXCLUDED.updated_at",
             (client_id, calories, protein, fat, carbs, datetime.utcnow().isoformat()),
         )
         conn.commit()

@@ -1,36 +1,30 @@
 """
-Booking API for the training-session Mini App.
+Booking API for the training-session Mini App — Postgres-backed.
 
-Deploy this in the SAME process/container as your existing python-telegram-bot,
-so both read/write the same SQLite file directly. Running it as a second,
-separate Railway service will NOT share the file unless you attach a shared
-volume — two processes pointing at two different local SQLite files is the
-most common way this silently breaks. If you'd rather keep it as a separate
-service for isolation, move to Postgres (Railway has a one-click addon) so
-both services talk to the same database over the network instead.
+Runs Postgres instead of SQLite specifically so a Volume is never needed:
+add a PostgreSQL database in Railway via "+ New" -> "Database" -> "Add
+PostgreSQL" (a normal button flow, not the canvas right-click/long-press
+that Volumes require), then reference its DATABASE_URL into this
+service's Variables tab using "Add Reference".
 
 ENV VARS REQUIRED:
     BOT_TOKEN       - same token your bot already uses
-    DB_PATH         - path to your existing SQLite file (default: clients.db)
+    DATABASE_URL    - Postgres connection string (Railway injects this
+                      automatically once you add the reference)
     TRAINER_TG_ID   - your personal Telegram user id, for booking notifications
-
-ASSUMPTIONS TO CHECK AGAINST YOUR REAL SCHEMA:
-    - Nothing here reads your existing `clients` table — it only needs the
-      Telegram user id, which comes from validated initData, not your DB.
-      If you want to reject bookings from people who aren't your clients,
-      add that check in create_booking() where marked below.
 """
 
 import os
-import sqlite3
 import hashlib
 import hmac
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from urllib.parse import parse_qsl
 
 import httpx
+import psycopg
+from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -39,7 +33,7 @@ from pydantic import BaseModel
 from client_data import get_client_program, get_client_kbju
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-DB_PATH = os.environ.get("DB_PATH", "clients.db")
+DATABASE_URL = os.environ["DATABASE_URL"]
 TRAINER_TG_ID = int(os.environ["TRAINER_TG_ID"])
 
 app = FastAPI()
@@ -54,10 +48,28 @@ def serve_miniapp():
 
 
 # ---------- DB setup ----------
+class _ConnWrapper:
+    """Thin shim so every call site can keep using conn.execute(sql, params)
+    .fetchone()/.fetchall() the way sqlite3.Connection allowed — psycopg
+    needs an explicit cursor, so this is the only place that changed."""
+    def __init__(self, raw):
+        self._raw = raw
+
+    def execute(self, sql, params=()):
+        cur = self._raw.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self):
+        self._raw.commit()
+
+    def close(self):
+        self._raw.close()
+
+
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    raw = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    return _ConnWrapper(raw)
 
 
 def init_db():
@@ -74,31 +86,72 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bookings (
             id TEXT PRIMARY KEY,
-            slot_id TEXT NOT NULL,
-            client_tg_id INTEGER NOT NULL,
+            slot_id TEXT NOT NULL REFERENCES slots(id),
+            client_tg_id BIGINT NOT NULL,
             client_name TEXT,
             created_at TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'active',
-            FOREIGN KEY (slot_id) REFERENCES slots(id)
+            reminded_24h INTEGER NOT NULL DEFAULT 0,
+            reminded_2h INTEGER NOT NULL DEFAULT 0
         )
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS client_profiles (
-            telegram_id INTEGER PRIMARY KEY,
+            telegram_id BIGINT PRIMARY KEY,
             program_text TEXT,
             calories INTEGER,
             protein INTEGER,
             fat INTEGER,
             carbs INTEGER,
+            weight_kg REAL,
             updated_at TEXT
         )
     """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS known_users (
-            telegram_id INTEGER PRIMARY KEY,
+            telegram_id BIGINT PRIMARY KEY,
             first_name TEXT,
             username TEXT,
             first_seen TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS food_logs (
+            id TEXT PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            log_date TEXT NOT NULL,
+            description TEXT,
+            calories INTEGER,
+            protein INTEGER,
+            fat INTEGER,
+            carbs INTEGER,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS progress_logs (
+            id TEXT PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            log_date TEXT NOT NULL,
+            exercise TEXT NOT NULL,
+            weight_kg REAL,
+            reps INTEGER,
+            sets INTEGER,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS technique_reviews (
+            id TEXT PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            exercise TEXT,
+            video_file_id TEXT,
+            trainer_message_id BIGINT,
+            score INTEGER,
+            feedback TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT
         )
     """)
     conn.commit()
@@ -135,14 +188,13 @@ def validate_init_data(init_data: str) -> dict:
 
 def _record_known_user(user: dict):
     """Every time someone opens the mini app, note their id/name so the
-    trainer can find it later with /clients — without this there'd be no
-    way to know which telegram_id belongs to which client."""
+    trainer can find it later with /clients."""
     if not user.get("id"):
         return
     conn = get_conn()
     conn.execute(
-        "INSERT INTO known_users (telegram_id, first_name, username, first_seen) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(telegram_id) DO UPDATE SET first_name=excluded.first_name, username=excluded.username",
+        "INSERT INTO known_users (telegram_id, first_name, username, first_seen) VALUES (%s, %s, %s, %s) "
+        "ON CONFLICT (telegram_id) DO UPDATE SET first_name = EXCLUDED.first_name, username = EXCLUDED.username",
         (user["id"], user.get("first_name"), user.get("username"), datetime.utcnow().isoformat()),
     )
     conn.commit()
@@ -151,11 +203,11 @@ def _record_known_user(user: dict):
 
 # ---------- Models ----------
 class SlotCreate(BaseModel):
-    date: str          # 'YYYY-MM-DD'
-    time: str          # 'HH:MM'
+    date: str
+    time: str
     duration: int = 60
     capacity: int = 1
-    init_data: str      # must be the trainer's own initData
+    init_data: str
 
 
 class BookingRequest(BaseModel):
@@ -170,21 +222,20 @@ class CancelRequest(BaseModel):
 # ---------- Slots ----------
 @app.get("/api/slots")
 def get_slots(week_start: str):
-    """week_start = 'YYYY-MM-DD' (Monday). Returns {date: [slot,...]} for 7 days."""
     conn = get_conn()
     start = datetime.strptime(week_start, "%Y-%m-%d")
     end = start + timedelta(days=7)
     rows = conn.execute(
-        "SELECT * FROM slots WHERE date >= ? AND date < ? ORDER BY date, time",
+        "SELECT * FROM slots WHERE date >= %s AND date < %s ORDER BY date, time",
         (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")),
     ).fetchall()
 
     result = {}
     for r in rows:
         booked = conn.execute(
-            "SELECT COUNT(*) FROM bookings WHERE slot_id = ? AND status = 'active'",
+            "SELECT COUNT(*) AS cnt FROM bookings WHERE slot_id = %s AND status = 'active'",
             (r["id"],),
-        ).fetchone()[0]
+        ).fetchone()["cnt"]
         result.setdefault(r["date"], []).append({
             "id": r["id"], "time": r["time"], "duration": r["duration"],
             "capacity": r["capacity"], "booked": booked,
@@ -195,8 +246,6 @@ def get_slots(week_start: str):
 
 @app.post("/api/slots")
 def create_slot(req: SlotCreate):
-    """Trainer-only: add one open slot. No admin UI yet — call this directly
-    (curl/Postman) until a proper admin screen exists (see roadmap)."""
     user = validate_init_data(req.init_data)
     if user.get("id") != TRAINER_TG_ID:
         raise HTTPException(403, "only the trainer can create slots")
@@ -204,7 +253,9 @@ def create_slot(req: SlotCreate):
     slot_id = f"{req.date}_{req.time}"
     conn = get_conn()
     conn.execute(
-        "INSERT OR REPLACE INTO slots (id, date, time, duration, capacity) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO slots (id, date, time, duration, capacity) VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (id) DO UPDATE SET date = EXCLUDED.date, time = EXCLUDED.time, "
+        "duration = EXCLUDED.duration, capacity = EXCLUDED.capacity",
         (slot_id, req.date, req.time, req.duration, req.capacity),
     )
     conn.commit()
@@ -220,19 +271,16 @@ async def create_booking(req: BookingRequest):
     if not client_tg_id:
         raise HTTPException(400, "no user id in initData")
 
-    # OPTIONAL: reject non-clients here, e.g.
-    #   if not is_known_client(client_tg_id): raise HTTPException(403, "not a client")
-
     conn = get_conn()
-    slot = conn.execute("SELECT * FROM slots WHERE id = ?", (req.slot_id,)).fetchone()
+    slot = conn.execute("SELECT * FROM slots WHERE id = %s", (req.slot_id,)).fetchone()
     if not slot:
         conn.close()
         raise HTTPException(404, "slot not found")
 
     booked = conn.execute(
-        "SELECT COUNT(*) FROM bookings WHERE slot_id = ? AND status = 'active'",
+        "SELECT COUNT(*) AS cnt FROM bookings WHERE slot_id = %s AND status = 'active'",
         (req.slot_id,),
-    ).fetchone()[0]
+    ).fetchone()["cnt"]
     if booked >= slot["capacity"]:
         conn.close()
         raise HTTPException(409, "slot is full")
@@ -241,15 +289,13 @@ async def create_booking(req: BookingRequest):
     client_name = user.get("first_name", "Клиент")
     conn.execute(
         "INSERT INTO bookings (id, slot_id, client_tg_id, client_name, created_at, status) "
-        "VALUES (?, ?, ?, ?, ?, 'active')",
+        "VALUES (%s, %s, %s, %s, %s, 'active')",
         (booking_id, req.slot_id, client_tg_id, client_name, datetime.utcnow().isoformat()),
     )
     conn.commit()
 
-    # Roster is what makes group slots visible to the trainer — pulled fresh
-    # right after the insert so the notification always reflects who's in.
     roster_rows = conn.execute(
-        "SELECT client_name FROM bookings WHERE slot_id = ? AND status = 'active'",
+        "SELECT client_name FROM bookings WHERE slot_id = %s AND status = 'active'",
         (req.slot_id,),
     ).fetchall()
     conn.close()
@@ -264,25 +310,31 @@ async def create_booking(req: BookingRequest):
 
 @app.get("/api/me")
 def get_me(init_data: str):
-    """Program + КБЖУ for the calling client only — scoped to their own
-    validated Telegram id. Never returns another client's data."""
+    """Program + КБЖУ + today's logged nutrition for the calling client
+    only — scoped to their own validated Telegram id."""
     user = validate_init_data(init_data)
     conn = get_conn()
     program = get_client_program(conn, user["id"])
     kbju = get_client_kbju(conn, user["id"])
+    today = date.today().isoformat()
+    totals = conn.execute(
+        "SELECT COALESCE(SUM(calories),0) AS calories, COALESCE(SUM(protein),0) AS protein, "
+        "COALESCE(SUM(fat),0) AS fat, COALESCE(SUM(carbs),0) AS carbs, COUNT(*) AS entries "
+        "FROM food_logs WHERE telegram_id = %s AND log_date = %s",
+        (user["id"], today),
+    ).fetchone()
     conn.close()
-    return {"program": program, "kbju": kbju}
+    return {"program": program, "kbju": kbju, "today": dict(totals)}
 
 
 @app.get("/api/slots/{slot_id}/roster")
 def get_roster(slot_id: str, init_data: str):
-    """Trainer-only: who's booked into a given slot."""
     user = validate_init_data(init_data)
     if user.get("id") != TRAINER_TG_ID:
         raise HTTPException(403, "trainer only")
     conn = get_conn()
     rows = conn.execute(
-        "SELECT client_name, client_tg_id FROM bookings WHERE slot_id = ? AND status = 'active'",
+        "SELECT client_name, client_tg_id FROM bookings WHERE slot_id = %s AND status = 'active'",
         (slot_id,),
     ).fetchall()
     conn.close()
@@ -297,7 +349,7 @@ def get_my_bookings(init_data: str):
     rows = conn.execute("""
         SELECT b.id, s.date, s.time, s.duration
         FROM bookings b JOIN slots s ON b.slot_id = s.id
-        WHERE b.client_tg_id = ? AND b.status = 'active'
+        WHERE b.client_tg_id = %s AND b.status = 'active'
         ORDER BY s.date, s.time
     """, (client_tg_id,)).fetchall()
     conn.close()
@@ -308,12 +360,12 @@ def get_my_bookings(init_data: str):
 async def cancel_booking(booking_id: str, req: CancelRequest):
     user = validate_init_data(req.init_data)
     conn = get_conn()
-    row = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    row = conn.execute("SELECT * FROM bookings WHERE id = %s", (booking_id,)).fetchone()
     if not row or row["client_tg_id"] != user.get("id"):
         conn.close()
         raise HTTPException(404, "booking not found")
-    slot = conn.execute("SELECT * FROM slots WHERE id = ?", (row["slot_id"],)).fetchone()
-    conn.execute("UPDATE bookings SET status = 'cancelled' WHERE id = ?", (booking_id,))
+    slot = conn.execute("SELECT * FROM slots WHERE id = %s", (row["slot_id"],)).fetchone()
+    conn.execute("UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
     conn.commit()
     conn.close()
 
@@ -328,7 +380,3 @@ async def notify_trainer(text: str):
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={"chat_id": TRAINER_TG_ID, "text": text},
         )
-
-
-# Local test run: `uvicorn booking_api:app --reload`
-# On Railway, add to the SAME service as your bot (see deployment note above).

@@ -441,15 +441,22 @@ async function renderProgram(){
     const me = await fetchMeRemote();
     const p = me.program || {};
     const k = me.kbju || {};
+    const t = me.today || {};
     el.innerHTML = `
       <div class="booking-card">
         <div class="date">Моя программа</div>
         <div class="time-row">${p.text ? p.text : 'Программа ещё не назначена'}</div>
       </div>
       <div class="booking-card">
-        <div class="date">КБЖУ</div>
+        <div class="date">КБЖУ — цель</div>
         <div class="time-row">
           Калории: ${k.calories ?? '—'} · Белки: ${k.protein ?? '—'} · Жиры: ${k.fat ?? '—'} · Углеводы: ${k.carbs ?? '—'}
+        </div>
+      </div>
+      <div class="booking-card">
+        <div class="date">Съедено сегодня</div>
+        <div class="time-row">
+          ${t.entries ? `Калории: ${t.calories} · Белки: ${t.protein} · Жиры: ${t.fat} · Углеводы: ${t.carbs}` : 'Пока ничего не залогировано — пришли фото еды боту.'}
         </div>
       </div>`;
   } catch (e) {

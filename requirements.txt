@@ -1,5 +1,8 @@
 fastapi
 uvicorn
 httpx
-python-telegram-bot
+python-telegram-bot[job-queue]
 pydantic
+anthropic
+matplotlib
+psycopg[binary]

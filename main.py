@@ -15,6 +15,10 @@ from telegram.ext import Application
 
 from booking_api import app as fastapi_app
 from booking_handlers import register_booking_handlers, set_booking_menu_button
+from nutrition_handlers import register_nutrition_handlers
+from progress_handlers import register_progress_handlers
+from technique_handlers import register_technique_handlers
+from jobs import register_jobs
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 TRAINER_TG_ID = int(os.environ["TRAINER_TG_ID"])
@@ -28,6 +32,10 @@ async def main():
     # >>> СЮДА свои старые application.add_handler(...) <<<
 
     register_booking_handlers(application, trainer_tg_id=TRAINER_TG_ID)
+    register_nutrition_handlers(application)
+    register_progress_handlers(application, trainer_tg_id=TRAINER_TG_ID)
+    register_technique_handlers(application, trainer_tg_id=TRAINER_TG_ID)
+    register_jobs(application, trainer_tg_id=TRAINER_TG_ID)
 
     await application.initialize()
     await set_booking_menu_button(application, miniapp_url=MINIAPP_URL)

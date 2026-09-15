@@ -5,12 +5,12 @@ in yourself via /set_program and /set_kbju (see booking_handlers.py).
 No dependency on your existing bot's schema at all.
 """
 
-import sqlite3
 
 
-def get_client_program(conn: sqlite3.Connection, telegram_user_id: int):
+
+def get_client_program(conn, telegram_user_id: int):
     row = conn.execute(
-        "SELECT program_text, updated_at FROM client_profiles WHERE telegram_id = ?",
+        "SELECT program_text, updated_at FROM client_profiles WHERE telegram_id = %s",
         (telegram_user_id,),
     ).fetchone()
     if not row or not row["program_text"]:
@@ -18,9 +18,9 @@ def get_client_program(conn: sqlite3.Connection, telegram_user_id: int):
     return {"text": row["program_text"], "updated_at": row["updated_at"]}
 
 
-def get_client_kbju(conn: sqlite3.Connection, telegram_user_id: int):
+def get_client_kbju(conn, telegram_user_id: int):
     row = conn.execute(
-        "SELECT calories, protein, fat, carbs, updated_at FROM client_profiles WHERE telegram_id = ?",
+        "SELECT calories, protein, fat, carbs, updated_at FROM client_profiles WHERE telegram_id = %s",
         (telegram_user_id,),
     ).fetchone()
     if not row:
