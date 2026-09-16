@@ -1,16 +1,15 @@
 """
 Booking API for the training-session Mini App — Postgres-backed.
 
-Runs Postgres instead of SQLite specifically so a Volume is never needed:
-add a PostgreSQL database in Railway via "+ New" -> "Database" -> "Add
-PostgreSQL" (a normal button flow, not the canvas right-click/long-press
-that Volumes require), then reference its DATABASE_URL into this
-service's Variables tab using "Add Reference".
+Owns the full database schema (every CREATE TABLE for this project lives
+here, in one place, so there is exactly one source of truth for table
+and column names — every other file only reads/writes through get_conn()).
 
 ENV VARS REQUIRED:
     BOT_TOKEN       - same token your bot already uses
     DATABASE_URL    - Postgres connection string (Railway injects this
-                      automatically once you add the reference)
+                      automatically once you reference it from the
+                      Postgres service into this service's Variables)
     TRAINER_TG_ID   - your personal Telegram user id, for booking notifications
 """
 
@@ -47,11 +46,12 @@ def serve_miniapp():
     return FileResponse("telegram_booking_miniapp.html")
 
 
-# ---------- DB setup ----------
+# ---------- DB connection ----------
 class _ConnWrapper:
-    """Thin shim so every call site can keep using conn.execute(sql, params)
-    .fetchone()/.fetchall() the way sqlite3.Connection allowed — psycopg
-    needs an explicit cursor, so this is the only place that changed."""
+    """Lets every call site use conn.execute(sql, params).fetchone()/
+    fetchall() the way sqlite3 allowed. psycopg needs an explicit
+    cursor — this hides that difference in exactly one place."""
+
     def __init__(self, raw):
         self._raw = raw
 
@@ -72,8 +72,10 @@ def get_conn():
     return _ConnWrapper(raw)
 
 
+# ---------- Schema (single source of truth for every table) ----------
 def init_db():
     conn = get_conn()
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS slots (
             id TEXT PRIMARY KEY,
@@ -83,6 +85,7 @@ def init_db():
             capacity INTEGER NOT NULL DEFAULT 1
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bookings (
             id TEXT PRIMARY KEY,
@@ -95,6 +98,7 @@ def init_db():
             reminded_2h INTEGER NOT NULL DEFAULT 0
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS client_profiles (
             telegram_id BIGINT PRIMARY KEY,
@@ -107,6 +111,7 @@ def init_db():
             updated_at TEXT
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS known_users (
             telegram_id BIGINT PRIMARY KEY,
@@ -115,6 +120,7 @@ def init_db():
             first_seen TEXT
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS food_logs (
             id TEXT PRIMARY KEY,
@@ -128,6 +134,7 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS progress_logs (
             id TEXT PRIMARY KEY,
@@ -140,6 +147,7 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS technique_reviews (
             id TEXT PRIMARY KEY,
@@ -154,8 +162,20 @@ def init_db():
             reviewed_at TEXT
         )
     """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_template (
+            id TEXT PRIMARY KEY,
+            day_of_week INTEGER NOT NULL,
+            time TEXT NOT NULL,
+            duration INTEGER NOT NULL DEFAULT 60,
+            capacity INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
     conn.commit()
     conn.close()
+
 
 init_db()
 
@@ -165,6 +185,7 @@ init_db()
 def validate_init_data(init_data: str) -> dict:
     if not init_data:
         raise HTTPException(401, "missing initData")
+
     parsed = dict(parse_qsl(init_data, strict_parsing=True))
     received_hash = parsed.pop("hash", None)
     if not received_hash:
@@ -201,7 +222,7 @@ def _record_known_user(user: dict):
     conn.close()
 
 
-# ---------- Models ----------
+# ---------- Request models ----------
 class SlotCreate(BaseModel):
     date: str
     time: str

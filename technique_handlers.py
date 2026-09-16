@@ -4,8 +4,8 @@ the trainer with context, the trainer replies to that video with feedback
 (optionally starting with a 1-10 score), and the reply is relayed back
 to the client automatically.
 
-NOT automated AI video analysis on purpose — see the chat reply for why.
-The bot only handles routing; the judgment stays with the trainer.
+Not automated AI video analysis on purpose — the bot only handles
+routing; the judgment stays with the trainer.
 
 Register with:
     from technique_handlers import register_technique_handlers
@@ -69,7 +69,8 @@ def register_technique_handlers(application: Application, trainer_tg_id: int):
             feedback = m.group(2).strip() or "(без комментария)"
 
         conn.execute(
-            "UPDATE technique_reviews SET score = %s, feedback = %s, status = 'reviewed', reviewed_at = %s WHERE id = %s",
+            "UPDATE technique_reviews SET score = %s, feedback = %s, status = 'reviewed', reviewed_at = %s "
+            "WHERE id = %s",
             (score, feedback, datetime.utcnow().isoformat(), row["id"]),
         )
         conn.commit()

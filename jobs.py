@@ -14,8 +14,7 @@ and these silently never run.
 ENV VAR (optional):
     TRAINER_TZ - IANA timezone for interpreting slot times and scheduling
     the Sunday summary, default "Europe/Minsk". Slot dates/times are
-    assumed to already be in this timezone — if you enter slots in a
-    different zone, reminders will fire at the wrong local time.
+    assumed to already be in this timezone.
 
 Register with:
     from jobs import register_jobs
@@ -77,7 +76,7 @@ def register_jobs(application: Application, trainer_tg_id: int):
             FROM food_logs f
             LEFT JOIN known_users u ON u.telegram_id = f.telegram_id
             WHERE f.log_date >= %s
-            GROUP BY f.telegram_id
+            GROUP BY f.telegram_id, u.first_name
             ORDER BY cal DESC
         """, (week_ago,)).fetchall()
         conn.close()

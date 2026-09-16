@@ -11,7 +11,7 @@ import io
 from datetime import datetime, date
 
 import matplotlib
-matplotlib.use("Agg")  # no display available on a server — render to buffer only
+matplotlib.use("Agg")  # no display on a server — render to a buffer only
 import matplotlib.pyplot as plt
 
 from telegram import Update

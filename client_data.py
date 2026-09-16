@@ -1,11 +1,8 @@
 """
-Program + КБЖУ lookups. No longer a stub — these read from the
-`client_profiles` table in booking_api.py's own database, which you fill
-in yourself via /set_program and /set_kbju (see booking_handlers.py).
-No dependency on your existing bot's schema at all.
+Program + КБЖУ lookups. Reads from the `client_profiles` table (schema
+owned by booking_api.py) that the trainer fills in via /set_program and
+/set_kbju in booking_handlers.py.
 """
-
-
 
 
 def get_client_program(conn, telegram_user_id: int):

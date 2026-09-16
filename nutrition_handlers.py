@@ -2,13 +2,10 @@
 Photo-based calorie logging + activity calorie-burn calculator.
 
 ENV VAR REQUIRED (in addition to the booking ones):
-    ANTHROPIC_API_KEY - from console.anthropic.com. This is a SEPARATE
-    account/billing from any claude.ai chat subscription — pay-per-use,
-    no monthly fee. A food photo estimate costs roughly $0.003-0.005
-    (a fraction of a cent) at current Sonnet 5 rates — for 10 clients
-    logging a few meals a day, that's on the order of a few dollars a
-    month total, not a meaningful cost, but it IS a real API key you
-    have to create and fund separately from Railway/Telegram.
+    ANTHROPIC_API_KEY - from console.anthropic.com. Separate account/
+    billing from any claude.ai chat subscription — pay-per-use, no
+    monthly fee. A food photo estimate costs roughly $0.003-0.005 at
+    current Sonnet 5 rates.
 
 Register with:
     from nutrition_handlers import register_nutrition_handlers
@@ -98,7 +95,8 @@ def register_nutrition_handlers(application: Application):
         await thinking_msg.edit_text(
             f"{est.get('description', 'Блюдо')}: ~{est.get('calories', '?')} ккал "
             f"(Б {est.get('protein', '?')} / Ж {est.get('fat', '?')} / У {est.get('carbs', '?')})\n\n"
-            f"Итого за сегодня: {totals['calories']} ккал (Б {totals['protein']} / Ж {totals['fat']} / У {totals['carbs']})\n\n"
+            f"Итого за сегодня: {totals['calories']} ккал "
+            f"(Б {totals['protein']} / Ж {totals['fat']} / У {totals['carbs']})\n\n"
             f"Это оценка ИИ по фото, не аптечная точность — для точных цифр взвешивай порции."
         )
 
@@ -111,7 +109,8 @@ def register_nutrition_handlers(application: Application):
         conn = get_conn()
         conn.execute(
             "INSERT INTO client_profiles (telegram_id, weight_kg, updated_at) VALUES (%s, %s, %s) "
-            "ON CONFLICT (telegram_id) DO UPDATE SET weight_kg=EXCLUDED.weight_kg, updated_at=EXCLUDED.updated_at",
+            "ON CONFLICT (telegram_id) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, "
+            "updated_at = EXCLUDED.updated_at",
             (update.effective_user.id, weight, datetime.utcnow().isoformat()),
         )
         conn.commit()
