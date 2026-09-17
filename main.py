@@ -29,6 +29,7 @@ from progress_handlers import register_progress_handlers
 from technique_handlers import register_technique_handlers
 from schedule_handlers import register_schedule_handlers
 from jobs import register_jobs
+from client_handlers import register_client_handlers
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -61,8 +62,7 @@ async def _polling_supervisor(application: Application):
 async def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # >>> СЮДА свои старые application.add_handler(...) <<<
-
+    register_client_handlers(application)
     register_booking_handlers(application, trainer_tg_id=TRAINER_TG_ID)
     register_nutrition_handlers(application)
     register_progress_handlers(application, trainer_tg_id=TRAINER_TG_ID)

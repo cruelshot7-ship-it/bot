@@ -173,6 +173,28 @@ def init_db():
         )
     """)
 
+
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS water_logs (
+            telegram_id BIGINT NOT NULL,
+            log_date TEXT NOT NULL,
+            ml INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (telegram_id, log_date)
+        )
+    ''')
+
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS habit_logs (
+            telegram_id BIGINT NOT NULL,
+            log_date TEXT NOT NULL,
+            workout INTEGER NOT NULL DEFAULT 0,
+            nutrition INTEGER NOT NULL DEFAULT 0,
+            sleep INTEGER NOT NULL DEFAULT 0,
+            water INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (telegram_id, log_date)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 

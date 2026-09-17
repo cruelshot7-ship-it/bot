@@ -23,7 +23,7 @@ from anthropic import AsyncAnthropic
 
 from booking_api import get_conn
 
-anthropic_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+anthropic_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"]) if os.environ.get("ANTHROPIC_API_KEY") else None
 
 # MET (metabolic equivalent) values — standard reference table, kept short
 # on purpose. Add more rows if your clients do other activities.
@@ -34,6 +34,8 @@ MET_TABLE = {
 
 
 async def _estimate_food(image_bytes: bytes, media_type: str) -> dict:
+    if anthropic_client is None:
+        raise RuntimeError('ANTHROPIC_API_KEY is not configured')
     b64 = base64.b64encode(image_bytes).decode()
     response = await anthropic_client.messages.create(
         model="claude-sonnet-5",
