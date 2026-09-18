@@ -310,4 +310,46 @@ def register_admin_handlers(application: Application, trainer_tg_id: int):
             await update.message.reply_text("Нужно ровно 4 числа через пробел. Ещё раз:")
             return AWAIT_KBJU
         try:
-            calories, prot
+            calories, protein, fat, carbs = (int(p) for p in parts)
+        except ValueError:
+            await update.message.reply_text("Это должны быть целые числа. Ещё раз:")
+            return AWAIT_KBJU
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO client_profiles (telegram_id, calories, protein, fat, carbs, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (telegram_id) DO UPDATE SET calories = EXCLUDED.calories, "
+            "protein = EXCLUDED.protein, fat = EXCLUDED.fat, carbs = EXCLUDED.carbs, "
+            "updated_at = EXCLUDED.updated_at",
+            (client_id, calories, protein, fat, carbs, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+        await update.message.reply_text("КБЖУ сохранены.", reply_markup=_main_menu_markup())
+        return MAIN
+
+    conv = ConversationHandler(
+        entry_points=[CommandHandler("admin", cmd_admin)],
+        states={
+            MAIN: [
+                CallbackQueryHandler(on_schedule_preset, pattern="^adm:schedule:(weekday|saturday)$"),
+                CallbackQueryHandler(on_schedule_custom, pattern="^adm:schedule:custom$"),
+                CallbackQueryHandler(on_main_menu, pattern="^adm:"),
+            ],
+            CHOOSE_CLIENT: [
+                CallbackQueryHandler(on_client_chosen, pattern=r"^adm:client:\d+$"),
+                CallbackQueryHandler(on_main_menu, pattern="^adm:back$"),
+            ],
+            CLIENT_MENU: [
+                CallbackQueryHandler(on_client_chosen, pattern=r"^adm:client:\d+$"),
+                CallbackQueryHandler(on_client_menu, pattern="^adm:client:(program|kbju|profile)$"),
+                CallbackQueryHandler(on_clients_list, pattern="^adm:clients$"),
+                CallbackQueryHandler(on_main_menu, pattern="^adm:back$"),
+            ],
+            AWAIT_PROGRAM: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_program_text)],
+            AWAIT_KBJU: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_kbju_text)],
+            AWAIT_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, on_custom_text)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel)],
+    )
+    application.add_handler(conv)

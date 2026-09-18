@@ -6,13 +6,21 @@ here, in one place, so there is exactly one source of truth for table
 and column names — every other file only reads/writes through get_conn()).
 
 ENV VARS REQUIRED:
-    BOT_TOKEN       - same token your bot already uses
-    DATABASE_URL    - Postgres connection string (Railway injects this
+    BOT_TOKEN      - same token your bot already uses
+    DATABASE_URL   - Postgres connection string (Railway injects this
                       automatically once you reference it from the
                       Postgres service into this service's Variables)
-    TRAINER_TG_ID   - your personal Telegram user id, for booking notifications
-"""
+    TRAINER_TG_ID  - your personal Telegram user id, for booking notifications
 
+FIX (2026-09-17): get_conn() used to call psycopg.connect() once, with no
+timeout and no retry. When Postgres was mid-restart (its own backup/
+restore cycle), that connect() raised immediately and turned into a
+500 on whatever endpoint called it — including POST /api/bookings,
+which is exactly the "не получилось записаться" a client would see.
+get_conn() now retries a couple of times with a short backoff before
+giving up, so a sub-second Postgres hiccup becomes an invisible delay
+instead of a failed request.
+"""
 import os
 import hashlib
 import hmac
@@ -47,6 +55,7 @@ def serve_miniapp():
 
 
 # ---------- DB connection ----------
+
 class _ConnWrapper:
     """Lets every call site use conn.execute(sql, params).fetchone()/
     fetchall() the way sqlite3 allowed. psycopg needs an explicit
@@ -67,15 +76,29 @@ class _ConnWrapper:
         self._raw.close()
 
 
-def get_conn():
-    raw = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-    return _ConnWrapper(raw)
+def get_conn(retries: int = 3, delay: float = 0.5):
+    """Postgres can briefly refuse new connections during its own restart
+    or backup/restore cycle. Retrying a couple of times with a short
+    backoff turns that into an invisible delay instead of a failed
+    request on whatever endpoint happened to call get_conn() at that
+    moment."""
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            raw = psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=5)
+            return _ConnWrapper(raw)
+        except psycopg.OperationalError as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(delay)
+                delay *= 2
+    raise last_exc
 
 
 # ---------- Schema (single source of truth for every table) ----------
+
 def init_db():
     conn = get_conn()
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS slots (
             id TEXT PRIMARY KEY,
@@ -85,7 +108,6 @@ def init_db():
             capacity INTEGER NOT NULL DEFAULT 1
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS bookings (
             id TEXT PRIMARY KEY,
@@ -98,7 +120,6 @@ def init_db():
             reminded_2h INTEGER NOT NULL DEFAULT 0
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS client_profiles (
             telegram_id BIGINT PRIMARY KEY,
@@ -111,7 +132,6 @@ def init_db():
             updated_at TEXT
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS known_users (
             telegram_id BIGINT PRIMARY KEY,
@@ -120,7 +140,6 @@ def init_db():
             first_seen TEXT
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS food_logs (
             id TEXT PRIMARY KEY,
@@ -134,7 +153,6 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS progress_logs (
             id TEXT PRIMARY KEY,
@@ -147,7 +165,6 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS technique_reviews (
             id TEXT PRIMARY KEY,
@@ -162,7 +179,6 @@ def init_db():
             reviewed_at TEXT
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS weekly_template (
             id TEXT PRIMARY KEY,
@@ -172,29 +188,6 @@ def init_db():
             capacity INTEGER NOT NULL DEFAULT 1
         )
     """)
-
-
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS water_logs (
-            telegram_id BIGINT NOT NULL,
-            log_date TEXT NOT NULL,
-            ml INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (telegram_id, log_date)
-        )
-    ''')
-
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS habit_logs (
-            telegram_id BIGINT NOT NULL,
-            log_date TEXT NOT NULL,
-            workout INTEGER NOT NULL DEFAULT 0,
-            nutrition INTEGER NOT NULL DEFAULT 0,
-            sleep INTEGER NOT NULL DEFAULT 0,
-            water INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (telegram_id, log_date)
-        )
-    ''')
-
     conn.commit()
     conn.close()
 
@@ -204,26 +197,22 @@ init_db()
 
 # ---------- Telegram initData validation ----------
 # https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+
 def validate_init_data(init_data: str) -> dict:
     if not init_data:
         raise HTTPException(401, "missing initData")
-
     parsed = dict(parse_qsl(init_data, strict_parsing=True))
     received_hash = parsed.pop("hash", None)
     if not received_hash:
         raise HTTPException(401, "no hash in initData")
-
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
     secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
     computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
     if not hmac.compare_digest(computed_hash, received_hash):
         raise HTTPException(401, "invalid initData signature")
-
     auth_date = int(parsed.get("auth_date", 0))
     if time.time() - auth_date > 86400:
         raise HTTPException(401, "initData expired (older than 24h)")
-
     user = json.loads(parsed.get("user", "{}"))
     _record_known_user(user)
     return user
@@ -245,6 +234,7 @@ def _record_known_user(user: dict):
 
 
 # ---------- Request models ----------
+
 class SlotCreate(BaseModel):
     date: str
     time: str
@@ -263,6 +253,7 @@ class CancelRequest(BaseModel):
 
 
 # ---------- Slots ----------
+
 @app.get("/api/slots")
 def get_slots(week_start: str):
     conn = get_conn()
@@ -272,7 +263,6 @@ def get_slots(week_start: str):
         "SELECT * FROM slots WHERE date >= %s AND date < %s ORDER BY date, time",
         (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")),
     ).fetchall()
-
     result = {}
     for r in rows:
         booked = conn.execute(
@@ -292,7 +282,6 @@ def create_slot(req: SlotCreate):
     user = validate_init_data(req.init_data)
     if user.get("id") != TRAINER_TG_ID:
         raise HTTPException(403, "only the trainer can create slots")
-
     slot_id = f"{req.date}_{req.time}"
     conn = get_conn()
     conn.execute(
@@ -307,19 +296,18 @@ def create_slot(req: SlotCreate):
 
 
 # ---------- Bookings ----------
+
 @app.post("/api/bookings")
 async def create_booking(req: BookingRequest):
     user = validate_init_data(req.init_data)
     client_tg_id = user.get("id")
     if not client_tg_id:
         raise HTTPException(400, "no user id in initData")
-
     conn = get_conn()
     slot = conn.execute("SELECT * FROM slots WHERE id = %s", (req.slot_id,)).fetchone()
     if not slot:
         conn.close()
         raise HTTPException(404, "slot not found")
-
     booked = conn.execute(
         "SELECT COUNT(*) AS cnt FROM bookings WHERE slot_id = %s AND status = 'active'",
         (req.slot_id,),
@@ -327,7 +315,6 @@ async def create_booking(req: BookingRequest):
     if booked >= slot["capacity"]:
         conn.close()
         raise HTTPException(409, "slot is full")
-
     booking_id = f"bk_{req.slot_id}_{client_tg_id}_{int(time.time())}"
     client_name = user.get("first_name", "Клиент")
     conn.execute(
@@ -336,13 +323,11 @@ async def create_booking(req: BookingRequest):
         (booking_id, req.slot_id, client_tg_id, client_name, datetime.utcnow().isoformat()),
     )
     conn.commit()
-
     roster_rows = conn.execute(
         "SELECT client_name FROM bookings WHERE slot_id = %s AND status = 'active'",
         (req.slot_id,),
     ).fetchall()
     conn.close()
-
     roster_names = ", ".join(r["client_name"] for r in roster_rows)
     await notify_trainer(
         f"Новая запись: {client_name} — {slot['date']} в {slot['time']}\n"
@@ -411,12 +396,12 @@ async def cancel_booking(booking_id: str, req: CancelRequest):
     conn.execute("UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
     conn.commit()
     conn.close()
-
     await notify_trainer(f"Отмена записи: {row['client_name']} — {slot['date']} в {slot['time']}")
     return {"ok": True}
 
 
 # ---------- Trainer notification ----------
+
 async def notify_trainer(text: str):
     async with httpx.AsyncClient() as client:
         await client.post(

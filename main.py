@@ -32,6 +32,7 @@ import uvicorn
 from telegram.ext import Application
 
 from booking_api import app as fastapi_app
+import admin_api  # noqa: F401 -- registers /api/admin/* routes onto fastapi_app
 from booking_handlers import register_booking_handlers, set_booking_menu_button
 from nutrition_handlers import register_nutrition_handlers
 from progress_handlers import register_progress_handlers
