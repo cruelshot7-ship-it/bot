@@ -1,153 +1,180 @@
-"""
-Photo-based calorie logging + activity calorie-burn calculator.
-
-ENV VAR REQUIRED (in addition to the booking ones):
-    ANTHROPIC_API_KEY - from console.anthropic.com. Separate account/
-    billing from any claude.ai chat subscription — pay-per-use, no
-    monthly fee. A food photo estimate costs roughly $0.003-0.005 at
-    current Sonnet 5 rates.
-
-Register with:
-    from nutrition_handlers import register_nutrition_handlers
-    register_nutrition_handlers(application)
-"""
-
 import base64
 import json
 import os
+import re
+import time
 from datetime import datetime, date
 
+from anthropic import AsyncAnthropic
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-from anthropic import AsyncAnthropic
 
 from booking_api import get_conn
 
-anthropic_client = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-# MET (metabolic equivalent) values — standard reference table, kept short
-# on purpose. Add more rows if your clients do other activities.
 MET_TABLE = {
     "бег": 9.8, "ходьба": 3.5, "велосипед": 7.5, "плавание": 8.0,
     "силовая": 6.0, "йога": 2.5, "кроссфит": 8.0, "гребля": 7.0,
 }
 
 
-async def _estimate_food(image_bytes: bytes, media_type: str) -> dict:
+def _client():
+    key = os.getenv("ANTHROPIC_API_KEY")
+    return AsyncAnthropic(api_key=key) if key else None
+
+
+def _clean_json(text):
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return json.loads(text)
+
+
+async def _estimate_food(image_bytes, media_type):
+    client = _client()
+    if client is None:
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured")
+
     b64 = base64.b64encode(image_bytes).decode()
-    response = await anthropic_client.messages.create(
-        model="claude-sonnet-5",
+    response = await client.messages.create(
+        model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
         max_tokens=300,
         messages=[{
             "role": "user",
             "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                {"type": "text", "text": (
-                    "Оцени калорийность и БЖУ еды на фото. Ответь СТРОГО в JSON, без пояснений и "
-                    'без markdown-разметки: {"description": "краткое название блюда", '
-                    '"calories": число, "protein": число, "fat": число, "carbs": число}'
-                )},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": b64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "Оцени еду на фото. Верни строго JSON без markdown: "
+                        '{"description":"...", "calories":0, "protein":0, "fat":0, "carbs":0}. '
+                        "Все числовые значения должны быть неотрицательными."
+                    ),
+                },
             ],
         }],
     )
-    text = response.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text.strip())
+    data = _clean_json(response.content[0].text)
+    required = ("description", "calories", "protein", "fat", "carbs")
+    if any(k not in data for k in required):
+        raise ValueError("AI JSON missing fields")
+    result = {
+        "description": str(data["description"])[:500],
+        "calories": int(data["calories"]),
+        "protein": int(data["protein"]),
+        "fat": int(data["fat"]),
+        "carbs": int(data["carbs"]),
+    }
+    if any(v < 0 for v in result.values() if isinstance(v, int)):
+        raise ValueError("negative nutrition value")
+    return result
 
 
 def register_nutrition_handlers(application: Application):
-    async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user = update.effective_user
+    async def photo_handler(update, context):
         photo = update.message.photo[-1]
         tg_file = await photo.get_file()
         image_bytes = await tg_file.download_as_bytearray()
-
-        thinking_msg = await update.message.reply_text("Считаю калории по фото...")
+        msg = await update.message.reply_text("Считаю КБЖУ по фото...")
         try:
             est = await _estimate_food(bytes(image_bytes), "image/jpeg")
         except Exception:
-            await thinking_msg.edit_text(
-                "Не получилось распознать еду на фото. Попробуй снять крупным планом при хорошем свете."
+            await msg.edit_text(
+                "Не получилось распознать еду. Проверь фото и наличие ANTHROPIC_API_KEY."
             )
             return
 
+        user = update.effective_user
+        now = datetime.utcnow()
+        log_id = f"food_{user.id}_{time.time_ns()}"
         conn = get_conn()
-        today = date.today().isoformat()
-        log_id = f"food_{user.id}_{int(datetime.utcnow().timestamp())}"
-        conn.execute(
-            "INSERT INTO food_logs (id, telegram_id, log_date, description, calories, protein, fat, carbs, created_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (log_id, user.id, today, est.get("description"), est.get("calories"),
-             est.get("protein"), est.get("fat"), est.get("carbs"), datetime.utcnow().isoformat()),
-        )
-        conn.commit()
-        totals = conn.execute(
-            "SELECT COALESCE(SUM(calories),0) AS calories, COALESCE(SUM(protein),0) AS protein, "
-            "COALESCE(SUM(fat),0) AS fat, COALESCE(SUM(carbs),0) AS carbs "
-            "FROM food_logs WHERE telegram_id = %s AND log_date = %s",
-            (user.id, today),
-        ).fetchone()
-        conn.close()
+        try:
+            conn.execute(
+                """INSERT INTO food_logs
+                   (id,telegram_id,log_date,description,calories,protein,fat,carbs,created_at)
+                   VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    log_id, user.id, date.today().isoformat(),
+                    est["description"], est["calories"], est["protein"],
+                    est["fat"], est["carbs"], now.isoformat(),
+                ),
+            )
+            conn.commit()
+            totals = conn.execute(
+                """SELECT COALESCE(SUM(calories),0) calories,
+                          COALESCE(SUM(protein),0) protein,
+                          COALESCE(SUM(fat),0) fat,
+                          COALESCE(SUM(carbs),0) carbs
+                   FROM food_logs WHERE telegram_id=%s AND log_date=%s""",
+                (user.id, date.today().isoformat()),
+            ).fetchone()
+        finally:
+            conn.close()
 
-        await thinking_msg.edit_text(
-            f"{est.get('description', 'Блюдо')}: ~{est.get('calories', '?')} ккал "
-            f"(Б {est.get('protein', '?')} / Ж {est.get('fat', '?')} / У {est.get('carbs', '?')})\n\n"
-            f"Итого за сегодня: {totals['calories']} ккал "
+        await msg.edit_text(
+            f"{est['description']}: ~{est['calories']} ккал "
+            f"(Б {est['protein']} / Ж {est['fat']} / У {est['carbs']})\n\n"
+            f"Итого сегодня: {totals['calories']} ккал "
             f"(Б {totals['protein']} / Ж {totals['fat']} / У {totals['carbs']})\n\n"
-            f"Это оценка ИИ по фото, не аптечная точность — для точных цифр взвешивай порции."
+            "Оценка ИИ приблизительная."
         )
 
-    async def set_weight(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def set_weight(update, context):
         try:
             weight = float(context.args[0])
+            if not 30 <= weight <= 300:
+                raise ValueError
         except (IndexError, ValueError):
-            await update.message.reply_text("Формат: /set_weight 78")
+            await update.message.reply_text("/set_weight 90")
             return
         conn = get_conn()
-        conn.execute(
-            "INSERT INTO client_profiles (telegram_id, weight_kg, updated_at) VALUES (%s, %s, %s) "
-            "ON CONFLICT (telegram_id) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, "
-            "updated_at = EXCLUDED.updated_at",
-            (update.effective_user.id, weight, datetime.utcnow().isoformat()),
-        )
-        conn.commit()
-        conn.close()
-        await update.message.reply_text(f"Вес сохранён: {weight} кг")
+        try:
+            conn.execute(
+                """INSERT INTO client_profiles(telegram_id,weight_kg,updated_at)
+                   VALUES(%s,%s,%s)
+                   ON CONFLICT(telegram_id) DO UPDATE SET
+                   weight_kg=EXCLUDED.weight_kg,updated_at=EXCLUDED.updated_at""",
+                (update.effective_user.id, weight, datetime.utcnow().isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        await update.message.reply_text(f"Вес сохранён: {weight:g} кг")
 
-    async def activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if len(context.args) < 2:
+    async def activity(update, context):
+        if len(context.args) != 2 or context.args[0].lower() not in MET_TABLE:
             await update.message.reply_text(
-                "Формат: /activity <тип> <минуты>\n"
-                f"Доступные типы: {', '.join(MET_TABLE.keys())}\n"
-                "Пример: /activity бег 30"
+                "/activity <тип> <минуты>\nТипы: " + ", ".join(MET_TABLE)
             )
             return
-        activity_type = context.args[0].lower()
         try:
             minutes = float(context.args[1])
+            if not 1 <= minutes <= 1000:
+                raise ValueError
         except ValueError:
-            await update.message.reply_text("Минуты должны быть числом.")
+            await update.message.reply_text("Минуты: число от 1 до 1000.")
             return
-        if activity_type not in MET_TABLE:
-            await update.message.reply_text(f"Не знаю такой тип. Доступные: {', '.join(MET_TABLE.keys())}")
-            return
-
         conn = get_conn()
-        row = conn.execute(
-            "SELECT weight_kg FROM client_profiles WHERE telegram_id = %s",
-            (update.effective_user.id,),
-        ).fetchone()
-        conn.close()
-        if not row or not row["weight_kg"]:
-            await update.message.reply_text("Сначала укажи вес: /set_weight 78")
+        try:
+            row = conn.execute(
+                "SELECT weight_kg FROM client_profiles WHERE telegram_id=%s",
+                (update.effective_user.id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row or row["weight_kg"] is None:
+            await update.message.reply_text("Сначала /set_weight 90")
             return
+        kcal = round(MET_TABLE[context.args[0].lower()] * row["weight_kg"] * minutes / 60)
+        await update.message.reply_text(f"Расход: примерно {kcal} ккал.")
 
-        kcal = round(MET_TABLE[activity_type] * row["weight_kg"] * (minutes / 60))
-        await update.message.reply_text(f"{activity_type}, {minutes} мин: сожжено ~{kcal} ккал")
 
     application.add_handler(CommandHandler("set_weight", set_weight))
     application.add_handler(CommandHandler("activity", activity))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.PHOTO, photo_handler))
