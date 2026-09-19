@@ -44,10 +44,23 @@ from jobs import register_jobs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-TRAINER_TG_ID = int(os.environ["TRAINER_TG_ID"])
-MINIAPP_URL = os.environ["MINIAPP_URL"]
-PORT = int(os.environ.get("PORT", 8000))
+
+def _get_env(name: str, caster=str, default=None):
+    value = os.environ.get(name, default)
+    if value is None or value == "":
+        if default is not None:
+            return caster(default)
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    try:
+        return caster(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"Environment variable {name!r} has an invalid value: {value!r}") from exc
+
+
+BOT_TOKEN = _get_env("BOT_TOKEN")
+TRAINER_TG_ID = _get_env("TRAINER_TG_ID", int)
+MINIAPP_URL = _get_env("MINIAPP_URL")
+PORT = _get_env("PORT", int, 8000)
 
 
 async def _error_handler(update, context):
