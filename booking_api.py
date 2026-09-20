@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -172,13 +173,24 @@ def init_db():
         conn.close()
 
 
-init_db()
+@app.on_event("startup")
+async def startup_db():
+    last = None
+    for attempt in range(1, 8):
+        try:
+            await asyncio.to_thread(init_db)
+            return
+        except Exception as exc:
+            last = exc
+            print(f"DB startup attempt {attempt}/7 failed: {exc}")
+            await asyncio.sleep(min(attempt * 2, 10))
+    raise last
 
 
 @app.get("/")
 def root():
     return FileResponse(
-        "telegram_booking_miniapp.html",
+        os.path.join(os.path.dirname(__file__), "telegram_booking_miniapp.html"),
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",
@@ -545,6 +557,17 @@ def slot_roster(slot_id: str, init_data: str):
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+@app.get("/api/session")
+def session_info(init_data: str):
+    user = validate_init_data(init_data)
+    return {
+        "telegram_id": user["id"],
+        "first_name": user.get("first_name"),
+        "username": user.get("username"),
+        "is_trainer": user["id"] == TRAINER_TG_ID,
+    }
 
 
 @app.get("/api/admin/whoami")

@@ -1,6 +1,7 @@
+import os
 from datetime import date, timedelta, datetime
 
-from telegram import ReplyKeyboardMarkup, Update
+from telegram import ReplyKeyboardMarkup, Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 from booking_api import get_conn
@@ -37,10 +38,14 @@ def _ensure_user(update):
 async def start(update, context):
     conn = _ensure_user(update)
     conn.close()
+    miniapp_url = os.environ.get("MINIAPP_URL", "").strip()
+    inline = None
+    if miniapp_url:
+        inline = InlineKeyboardMarkup([[InlineKeyboardButton("📅 ОТКРЫТЬ ПРИЛОЖЕНИЕ", web_app=WebAppInfo(url=miniapp_url))]])
     await update.message.reply_text(
         "🏠 ДИСКИПЛИНА\n\n"
         "Программа, питание, тренировки, прогресс и запись к тренеру.",
-        reply_markup=keyboard(),
+        reply_markup=inline or keyboard(),
     )
 
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import uvicorn
 from telegram.ext import Application
@@ -46,6 +47,13 @@ async def start_polling_with_retry(application):
             delay = min(delay * 2, 30)
 
 
+def cache_bust_url(url: str) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["v"] = os.getenv("APP_VERSION", "20260920-1")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", urlencode(query), parts.fragment))
+
+
 async def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -62,7 +70,13 @@ async def main():
 
     await application.initialize()
     await application.start()
-    await set_booking_menu_button(application, MINIAPP_URL)
+
+    try:
+        await set_booking_menu_button(application, cache_bust_url(MINIAPP_URL))
+        logger.info("Telegram Mini App menu configured: %s", cache_bust_url(MINIAPP_URL))
+    except Exception:
+        logger.exception("Could not configure Telegram Mini App menu button; bot will continue")
+
     await start_polling_with_retry(application)
 
     server = uvicorn.Server(
