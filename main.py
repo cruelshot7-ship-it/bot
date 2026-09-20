@@ -34,6 +34,10 @@ app = FastAPI(title="Discipline Fitness API", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 
+def now(): return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def day(): return datetime.now(timezone.utc).date().isoformat()
+def rowdict(r): return dict(r) if r else None
+
 def db():
     con = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
@@ -118,11 +122,6 @@ def init_db():
         c.commit()
 
 
-def now(): return datetime.now(timezone.utc).isoformat(timespec="seconds")
-def day(): return datetime.now(timezone.utc).date().isoformat()
-def rowdict(r): return dict(r) if r else None
-
-
 def ensure_user(tg_id: int, username="", first_name="", last_name=""):
     role = "trainer" if tg_id == TRAINER_TG_ID else "client"
     with closing(db()) as c:
@@ -180,7 +179,7 @@ class TrainingDayIn(BaseModel):
     tg_id: int; day_order: int = Field(ge=1,le=14); title: str; weekday: str = ""; body: str = ""; exercises: list[dict] = []
 class DayReportIn(BaseModel):
     completed: bool = False; load_feel: Optional[int] = Field(default=None,ge=1,le=10); energy: Optional[int] = Field(default=None,ge=1,le=10); soreness: Optional[int] = Field(default=None,ge=1,le=10); pain: Optional[int] = Field(default=None,ge=0,le=10); comment: str = ""
-class NotificationIn(BaseModel): tg_id: int; text: str; remind_at: str; kind: str="custom"
+class NotificationIn(BaseModel): tg_id: int; text: str; remind_at: str = ""; kind: str="custom"
 
 init_db()
 
@@ -216,10 +215,15 @@ def book(x: BookingIn, x_telegram_init_data: Optional[str]=Header(default=None))
         if not s or s["status"]!="open": raise HTTPException(400,"Слот недоступен")
         booked=c.execute("SELECT COUNT(*) n FROM bookings WHERE slot_id=? AND status='active'",(x.slot_id,)).fetchone()["n"]
         if booked>=s["capacity"]: raise HTTPException(409,"Слот уже заполнен")
-        existing=c.execute("SELECT id FROM bookings WHERE slot_id=? AND tg_id=? AND status='active'",(x.slot_id,u["tg_id"])).fetchone()
-        if existing: return {"ok":True,"id":existing["id"]}
-        cur=c.execute("INSERT INTO bookings(slot_id,tg_id,created_at) VALUES(?,?,?)",(x.slot_id,u["tg_id"],now()))
-        c.commit(); bid=cur.lastrowid
+        existing=c.execute("SELECT id,status FROM bookings WHERE slot_id=? AND tg_id=?",(x.slot_id,u["tg_id"])).fetchone()
+        if existing and existing["status"] == "active":
+            return {"ok":True,"id":existing["id"]}
+        if existing:
+            c.execute("UPDATE bookings SET status='active',created_at=? WHERE id=?",(now(),existing["id"]))
+            c.commit(); bid=existing["id"]
+        else:
+            cur=c.execute("INSERT INTO bookings(slot_id,tg_id,created_at) VALUES(?,?,?)",(x.slot_id,u["tg_id"],now()))
+            c.commit(); bid=cur.lastrowid
     return {"ok":True,"id":bid}
 
 @app.delete("/api/bookings/{booking_id}")
@@ -462,8 +466,9 @@ def trainer_photo(tg_id:int,photo_id:int,x_telegram_init_data:Optional[str]=Head
 @app.post("/api/trainer/notifications")
 def trainer_notification(x:NotificationIn,x_telegram_init_data:Optional[str]=Header(default=None)):
     u=current_user(x_telegram_init_data); require_trainer(u)
+    remind_at = x.remind_at.strip() or now()
     with closing(db()) as c:
-        cur=c.execute("INSERT INTO notifications(tg_id,kind,text,remind_at) VALUES(?,?,?,?)",(x.tg_id,x.kind,x.text,x.remind_at)); c.commit()
+        cur=c.execute("INSERT INTO notifications(tg_id,kind,text,remind_at) VALUES(?,?,?,?)",(x.tg_id,x.kind,x.text,remind_at)); c.commit()
     return {"ok":True,"id":cur.lastrowid}
 
 async def bot_start(update:Update, context:ContextTypes.DEFAULT_TYPE):
