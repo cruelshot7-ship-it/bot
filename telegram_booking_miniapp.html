@@ -1,0 +1,1755 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1017">
+<title>ФИТНЕС ФРАКЦИЯ · DISCIPLINE</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<style>
+:root{
+  --bg:#0d1017;
+  --panel:#151a24;
+  --panel2:#10151e;
+  --line:#263142;
+  --text:#f4f7fb;
+  --muted:#8d99aa;
+  --accent:#e63b32;
+  --cyan:#19d8ff;
+  --danger:#ff5d68;
+  --ok:#45d483
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:radial-gradient(circle at top,#17202d 0,#0d1017 42%);
+  color:var(--text);
+  font:15px Inter,Arial,sans-serif;
+  min-height:100vh
+}
+
+button,input,textarea,select{
+  font:inherit
+}
+
+button{
+  border:0;
+  cursor:pointer;
+  color:var(--text)
+}
+
+.wrap{
+  max-width:760px;
+  margin:auto;
+  padding:18px 14px 100px
+}
+
+.brand{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:16px
+}
+
+.brand b{
+  letter-spacing:.12em
+}
+
+.brand small{
+  color:var(--muted)
+}
+
+.tabs{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:7px;
+  position:sticky;
+  top:0;
+  background:#0d1017ee;
+  padding:7px 0;
+  z-index:5
+}
+
+.tab{
+  padding:11px 5px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:12px;
+  font-size:12px
+}
+
+.tab.active{
+  border-color:var(--accent);
+  box-shadow:0 0 0 1px #e63b3244
+}
+
+.card{
+  background:linear-gradient(180deg,#171d28,#111620);
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:14px;
+  margin:12px 0;
+  box-shadow:0 10px 30px #0004
+}
+
+h2{
+  font-size:20px;
+  margin:8px 0 14px
+}
+
+h3{
+  font-size:15px;
+  margin:0 0 10px
+}
+
+.muted{
+  color:var(--muted)
+}
+
+.error{
+  color:#ff7780
+}
+
+.ok{
+  color:var(--ok)
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:8px
+}
+
+.grid3{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px
+}
+
+label{
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  margin-bottom:5px
+}
+
+input,textarea,select{
+  width:100%;
+  background:#0c1119;
+  color:var(--text);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:10px;
+  outline:none
+}
+
+textarea{
+  min-height:150px;
+  resize:vertical
+}
+
+.btn{
+  background:var(--accent);
+  padding:11px 14px;
+  border-radius:11px;
+  font-weight:700
+}
+
+.btn.secondary{
+  background:#202938
+}
+
+.btn.danger{
+  background:#512027
+}
+
+.btn.cyan{
+  background:#125e6b
+}
+
+.row{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap
+}
+
+.stack>*+*{
+  margin-top:8px
+}
+
+.days{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap
+}
+
+.day{
+  background:#202938;
+  padding:9px 11px;
+  border-radius:10px
+}
+
+.day.on{
+  background:var(--accent)
+}
+
+.slot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  margin:8px 0;
+  background:#101620
+}
+
+.slot.full{
+  opacity:.55
+}
+
+.time{
+  font-size:17px;
+  font-weight:800
+}
+
+.meta{
+  font-size:12px;
+  color:var(--muted)
+}
+
+.listitem{
+  padding:11px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  margin:7px 0;
+  background:#0f141c
+}
+
+.template{
+  display:grid;
+  grid-template-columns:1fr auto auto auto;
+  gap:8px;
+  align-items:center
+}
+
+.hidden{
+  display:none!important
+}
+
+.toast{
+  position:fixed;
+  left:14px;
+  right:14px;
+  bottom:18px;
+  background:#202938;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px;
+  z-index:20;
+  text-align:center
+}
+
+@media(max-width:480px){
+  .grid3{
+    grid-template-columns:1fr 1fr
+  }
+
+  .template{
+    grid-template-columns:1fr auto
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+  <div class="brand">
+    <div>
+      <b>ФИТНЕС ФРАКЦИЯ</b>
+      <div class="muted">DISCIPLINE · TRAINING SYSTEM</div>
+    </div>
+
+    <small id="who">...</small>
+  </div>
+
+  <div class="tabs">
+
+    <button class="tab active" data-tab="book">
+      Слоты
+    </button>
+
+    <button class="tab" data-tab="mine">
+      Мои
+    </button>
+
+    <button class="tab" data-tab="program">
+      Программа
+    </button>
+
+    <button class="tab hidden" id="trainerTab" data-tab="trainer">
+      Тренер
+    </button>
+
+  </div>
+
+
+  <section id="book" class="page">
+
+    <div class="card">
+
+      <div class="row">
+
+        <div>
+          <h2>Запись на тренировку</h2>
+          <div class="muted">
+            Выберите день и свободный слот.
+          </div>
+        </div>
+
+        <button class="btn secondary" onclick="loadWeek()">
+          ↻
+        </button>
+
+      </div>
+
+    </div>
+
+    <div id="slotsBox"></div>
+
+  </section>
+
+
+  <section id="mine" class="page hidden">
+
+    <div class="card">
+
+      <h2>Мои записи</h2>
+
+      <div id="mineBox" class="muted">
+        Загрузка...
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <section id="program" class="page hidden">
+
+    <div class="card">
+
+      <h2>Моя программа</h2>
+
+      <div id="programBox" class="muted">
+        Загрузка...
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <section id="trainer" class="page hidden">
+
+    <div class="card">
+
+      <div class="row">
+
+        <div>
+          <h2>Кабинет тренера</h2>
+
+          <div class="muted">
+            Расписание, слоты, клиенты и назначения.
+          </div>
+        </div>
+
+        <button
+          class="btn secondary"
+          onclick="loadTrainer()">
+          ↻
+        </button>
+
+      </div>
+
+    </div>
+
+
+    <div class="card">
+
+      <h3>Еженедельное расписание</h3>
+
+      <div class="days" id="days"></div>
+
+      <div class="grid" style="margin-top:10px">
+
+        <div>
+          <label>Время</label>
+          <input
+            id="times"
+            placeholder="08:00, 10:00, 18:00">
+        </div>
+
+        <div>
+          <label>Длительность, мин</label>
+          <input
+            id="duration"
+            type="number"
+            value="60"
+            min="15"
+            max="240">
+        </div>
+
+        <div>
+          <label>Вместимость</label>
+          <input
+            id="capacity"
+            type="number"
+            value="1"
+            min="1"
+            max="50">
+        </div>
+
+      </div>
+
+      <div class="row" style="margin-top:10px">
+
+        <button
+          class="btn"
+          onclick="saveWeekly()">
+          Сохранить расписание
+        </button>
+
+        <span
+          id="scheduleStatus"
+          class="muted">
+        </span>
+
+      </div>
+
+      <div
+        id="templates"
+        style="margin-top:12px">
+      </div>
+
+    </div>
+
+
+    <div class="card">
+
+      <h3>Разовый слот</h3>
+
+      <div class="grid">
+
+        <div>
+          <label>Дата</label>
+          <input id="oneDate" type="date">
+        </div>
+
+        <div>
+          <label>Время</label>
+          <input
+            id="oneTime"
+            type="time"
+            value="18:00">
+        </div>
+
+        <div>
+          <label>Длительность</label>
+          <input
+            id="oneDuration"
+            type="number"
+            value="60">
+        </div>
+
+        <div>
+          <label>Вместимость</label>
+          <input
+            id="oneCapacity"
+            type="number"
+            value="1">
+        </div>
+
+      </div>
+
+      <button
+        class="btn cyan"
+        style="margin-top:10px"
+        onclick="createOneSlot()">
+        Создать / обновить слот
+      </button>
+
+    </div>
+
+
+    <div class="card">
+
+      <h3>Слоты на дату</h3>
+
+      <input
+        id="slotDate"
+        type="date"
+        onchange="loadAdminSlots()">
+
+      <div
+        id="adminSlots"
+        style="margin-top:10px">
+      </div>
+
+    </div>
+
+
+    <div class="card">
+
+      <h3>Клиенты</h3>
+
+      <div
+        id="clients"
+        class="muted">
+        Загрузка...
+      </div>
+
+      <div
+        id="clientEditor"
+        class="hidden">
+      </div>
+
+    </div>
+
+
+    <div class="card">
+
+      <h3>Записи на дату</h3>
+
+      <input
+        id="rosterDate"
+        type="date"
+        onchange="loadRoster()">
+
+      <div
+        id="roster"
+        style="margin-top:10px">
+      </div>
+
+    </div>
+
+  </section>
+
+</div>
+
+
+<div id="toast" class="toast hidden"></div>
+
+
+<script>
+
+const tg = window.Telegram?.WebApp
+
+tg?.ready()
+tg?.expand()
+
+
+const initData = () => tg?.initData || ""
+
+
+const $ = id => document.getElementById(id)
+
+
+let trainer = false
+let selectedDays = new Set()
+let clients = []
+let currentWeekStart = null
+
+
+function toast(msg, error = false) {
+
+  const el = $("toast")
+
+  el.textContent = msg
+
+  el.classList.remove("hidden")
+
+  el.style.borderColor =
+    error ? "#ff5d68" : "#263142"
+
+  clearTimeout(window._toast)
+
+  window._toast = setTimeout(
+    () => el.classList.add("hidden"),
+    2800
+  )
+}
+
+
+async function api(path, opt = {}) {
+
+  const res = await fetch(
+    path,
+    {
+      cache: "no-store",
+      ...opt,
+      headers: {
+        "Content-Type": "application/json",
+        ...(opt.headers || {})
+      }
+    }
+  )
+
+  let data = {}
+
+  try {
+    data = await res.json()
+  } catch {}
+
+  if (!res.ok) {
+    throw new Error(
+      data.detail ||
+      data.message ||
+      `HTTP ${res.status}`
+    )
+  }
+
+  return data
+}
+
+
+function iso(d) {
+
+  return `${d.getFullYear()}-${String(
+    d.getMonth() + 1
+  ).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`
+}
+
+
+function monday(d) {
+
+  const x = new Date(d)
+
+  const n = (x.getDay() + 6) % 7
+
+  x.setDate(x.getDate() - n)
+
+  return x
+}
+
+
+function esc(v) {
+
+  return String(v ?? "")
+    .replace(
+      /[&<>"']/g,
+      c => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[c])
+    )
+}
+
+
+function setPage(tab) {
+
+  document
+    .querySelectorAll(".page")
+    .forEach(x => x.classList.add("hidden"))
+
+  $(tab).classList.remove("hidden")
+
+  document
+    .querySelectorAll(".tab")
+    .forEach(
+      x => x.classList.toggle(
+        "active",
+        x.dataset.tab === tab
+      )
+    )
+
+  if (tab === "mine") {
+    loadMine()
+  }
+
+  if (tab === "program") {
+    loadProgram()
+  }
+
+  if (tab === "trainer") {
+    loadTrainer()
+  }
+}
+
+
+document
+  .querySelectorAll(".tab")
+  .forEach(
+    b => b.onclick = () => setPage(b.dataset.tab)
+  )
+
+
+async function boot() {
+
+  try {
+
+    const s = await api(
+      `/api/session?init_data=${encodeURIComponent(
+        initData()
+      )}`
+    )
+
+    trainer = !!s.is_trainer
+
+    $("who").textContent =
+      trainer
+        ? "ТРЕНЕР"
+        : (s.user?.first_name || "КЛИЕНТ")
+
+    if (trainer) {
+      $("trainerTab")
+        .classList
+        .remove("hidden")
+    }
+
+  } catch (e) {
+
+    $("who").textContent = "Telegram"
+
+    toast(e.message, true)
+  }
+
+  if (trainer) {
+    initTrainerDates()
+  }
+
+  await loadWeek()
+}
+
+
+async function loadWeek() {
+
+  const start =
+    currentWeekStart ||
+    monday(new Date())
+
+  currentWeekStart = start
+
+  try {
+
+    const data = await api(
+      `/api/slots?week_start=${iso(start)}`
+    )
+
+    const days = data.days || {}
+
+    let html = ""
+
+    for (let i = 0; i < 7; i++) {
+
+      const d = new Date(start)
+
+      d.setDate(d.getDate() + i)
+
+      const key = iso(d)
+
+      const slots = days[key] || []
+
+      html += `
+        <div class="card">
+
+          <div class="row">
+
+            <h3>
+              ${d.toLocaleDateString(
+                "ru-RU",
+                {
+                  weekday: "long",
+                  day: "2-digit",
+                  month: "2-digit"
+                }
+              )}
+            </h3>
+
+            <span class="meta">
+              ${slots.length} сл.
+            </span>
+
+          </div>
+      `
+
+      if (!slots.length) {
+
+        html += `
+          <div class="muted">
+            Свободных слотов нет.
+          </div>
+        `
+      }
+
+      slots.forEach(s => {
+
+        const full = s.available <= 0
+
+        html += `
+          <div class="slot ${full ? "full" : ""}">
+
+            <div>
+
+              <div class="time">
+                ${esc(s.time)}
+              </div>
+
+              <div class="meta">
+                ${s.duration} мин ·
+                ${s.booked}/${s.capacity}
+              </div>
+
+            </div>
+
+            <button
+              class="btn ${full ? "secondary" : ""}"
+              ${full ? "disabled" : ""}
+              onclick="book('${esc(s.id)}')">
+
+              ${full ? "Занято" : "Записаться"}
+
+            </button>
+
+          </div>
+        `
+      })
+
+      html += `</div>`
+    }
+
+    $("slotsBox").innerHTML = html
+
+  } catch (e) {
+
+    $("slotsBox").innerHTML =
+      `<div class="card error">
+        ${esc(e.message)}
+      </div>`
+  }
+}
+
+
+async function book(slotId) {
+
+  try {
+
+    await api(
+      "/api/bookings",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          slot_id: slotId,
+          init_data: initData()
+        })
+      }
+    )
+
+    toast("Запись подтверждена")
+
+    await loadWeek()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function loadMine() {
+
+  try {
+
+    const d = await api(
+      `/api/my-bookings?init_data=${encodeURIComponent(
+        initData()
+      )}`
+    )
+
+    $("mineBox").innerHTML =
+      d.bookings.length
+        ? d.bookings.map(
+            b => `
+              <div class="listitem">
+
+                <div class="row">
+
+                  <b>
+                    ${b.date} · ${b.time}
+                  </b>
+
+                  <button
+                    class="btn danger"
+                    onclick="cancelBooking(${b.id})">
+
+                    Отменить
+
+                  </button>
+
+                </div>
+
+                <div class="meta">
+                  ${b.duration} мин
+                </div>
+
+              </div>
+            `
+          ).join("")
+        : "Записей пока нет."
+
+  } catch (e) {
+
+    $("mineBox").innerHTML =
+      `<span class="error">
+        ${esc(e.message)}
+      </span>`
+  }
+}
+
+
+async function cancelBooking(id) {
+
+  if (!confirm("Отменить запись?")) {
+    return
+  }
+
+  try {
+
+    await api(
+      `/api/bookings/${id}?init_data=${encodeURIComponent(
+        initData()
+      )}`,
+      {
+        method: "DELETE"
+      }
+    )
+
+    toast("Запись отменена")
+
+    loadMine()
+    loadWeek()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function loadProgram() {
+
+  try {
+
+    const d = await api(
+      `/api/me?init_data=${encodeURIComponent(
+        initData()
+      )}`
+    )
+
+    const k = d.kbju
+
+    $("programBox").innerHTML = `
+      <div class="stack">
+
+        <div class="listitem">
+
+          <b>Программа</b>
+
+          <div
+            style="white-space:pre-wrap;margin-top:8px">
+
+            ${esc(
+              d.program_text ||
+              "Тренер ещё не назначил программу."
+            )}
+
+          </div>
+
+        </div>
+
+        <div class="listitem">
+
+          <b>КБЖУ</b>
+
+          <div style="margin-top:8px">
+
+            ${
+              k
+                ? `${k.calories} ккал · Б ${k.protein} г · Ж ${k.fat} г · У ${k.carbs} г`
+                : "КБЖУ ещё не назначено."
+            }
+
+          </div>
+
+        </div>
+
+      </div>
+    `
+
+  } catch (e) {
+
+    $("programBox").innerHTML =
+      `<span class="error">
+        ${esc(e.message)}
+      </span>`
+  }
+}
+
+
+function initTrainerDates() {
+
+  const today = iso(new Date())
+
+  ;[
+    "oneDate",
+    "slotDate",
+    "rosterDate"
+  ].forEach(
+    id => $(id).value = today
+  )
+
+  for (
+    const d of [
+      "пн",
+      "вт",
+      "ср",
+      "чт",
+      "пт",
+      "сб",
+      "вс"
+    ]
+  ) {
+
+    const b = document.createElement("button")
+
+    b.className = "day"
+
+    b.textContent = d
+
+    b.onclick = () => {
+
+      b.classList.toggle("on")
+
+      if (selectedDays.has(d)) {
+        selectedDays.delete(d)
+      } else {
+        selectedDays.add(d)
+      }
+    }
+
+    $("days").appendChild(b)
+  }
+}
+
+
+async function loadTrainer() {
+
+  try {
+
+    const w = await api(
+      `/api/admin/weekly?init_data=${encodeURIComponent(
+        initData()
+      )}`
+    )
+
+    renderTemplates(w.templates || [])
+
+    const c = await api(
+      `/api/admin/clients?init_data=${encodeURIComponent(
+        initData()
+      )}`
+    )
+
+    clients = c.clients || []
+
+    renderClients()
+
+    await loadAdminSlots()
+
+    await loadRoster()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+function renderTemplates(items) {
+
+  $("templates").innerHTML =
+    items.length
+      ? items.map(
+          t => `
+            <div class="listitem template">
+
+              <div>
+
+                <b>
+                  ${t.day} · ${t.time}
+                </b>
+
+                <div class="meta">
+                  ${t.duration} мин ·
+                  мест ${t.capacity}
+                </div>
+
+              </div>
+
+              <span></span>
+
+              <span></span>
+
+              <button
+                class="btn danger"
+                onclick="deleteTemplate('${esc(t.id)}')">
+
+                Удалить
+
+              </button>
+
+            </div>
+          `
+        ).join("")
+      : `
+        <div class="muted">
+          Расписание пустое.
+        </div>
+      `
+}
+
+
+async function saveWeekly() {
+
+  const times =
+    $("times").value
+      .split(",")
+      .map(x => x.trim())
+      .filter(Boolean)
+
+  if (
+    !selectedDays.size ||
+    !times.length
+  ) {
+
+    toast(
+      "Выберите дни и укажите время",
+      true
+    )
+
+    return
+  }
+
+  $("scheduleStatus").textContent =
+    "Сохранение..."
+
+  try {
+
+    const d = await api(
+      "/api/admin/weekly",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          init_data: initData(),
+          days: [...selectedDays],
+          times,
+          duration: Number(
+            $("duration").value
+          ),
+          capacity: Number(
+            $("capacity").value
+          )
+        })
+      }
+    )
+
+    $("scheduleStatus").textContent =
+      `Сохранено: ${d.templates}`
+
+    toast("Расписание обновлено")
+
+    loadTrainer()
+
+  } catch (e) {
+
+    $("scheduleStatus").textContent =
+      "Ошибка"
+
+    toast(e.message, true)
+  }
+}
+
+
+async function deleteTemplate(id) {
+
+  if (
+    !confirm(
+      "Удалить шаблон и будущие свободные слоты этого времени?"
+    )
+  ) {
+    return
+  }
+
+  try {
+
+    await api(
+      `/api/admin/weekly/${encodeURIComponent(
+        id
+      )}?init_data=${encodeURIComponent(
+        initData()
+      )}`,
+      {
+        method: "DELETE"
+      }
+    )
+
+    toast("Удалено")
+
+    loadTrainer()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function createOneSlot() {
+
+  try {
+
+    await api(
+      "/api/admin/slots",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          init_data: initData(),
+          date: $("oneDate").value,
+          time: $("oneTime").value,
+          duration: Number(
+            $("oneDuration").value
+          ),
+          capacity: Number(
+            $("oneCapacity").value
+          )
+        })
+      }
+    )
+
+    toast("Слот создан")
+
+    $("slotDate").value =
+      $("oneDate").value
+
+    loadAdminSlots()
+    loadRoster()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function loadAdminSlots() {
+
+  const d = $("slotDate").value
+
+  if (!d) {
+    return
+  }
+
+  try {
+
+    const data = await api(
+      `/api/slots?week_start=${d}`
+    )
+
+    const all = []
+
+    Object
+      .values(data.days || {})
+      .flat()
+      .filter(s => s.date === d)
+      .forEach(s => all.push(s))
+
+    $("adminSlots").innerHTML =
+      all.length
+        ? all.map(
+            s => `
+              <div class="listitem">
+
+                <div class="row">
+
+                  <div>
+
+                    <b>${s.time}</b>
+
+                    <div class="meta">
+                      ${s.duration} мин ·
+                      ${s.booked}/${s.capacity}
+                    </div>
+
+                  </div>
+
+                  <div class="row">
+
+                    <button
+                      class="btn secondary"
+                      onclick='editSlot(${JSON.stringify(s)})'>
+
+                      Изменить
+
+                    </button>
+
+                    <button
+                      class="btn danger"
+                      onclick="deleteSlot('${esc(s.id)}')">
+
+                      Удалить
+
+                    </button>
+
+                  </div>
+
+                </div>
+
+              </div>
+            `
+          ).join("")
+        : `
+          <div class="muted">
+            На эту дату слотов нет.
+          </div>
+        `
+
+  } catch (e) {
+
+    $("adminSlots").innerHTML =
+      `<span class="error">
+        ${esc(e.message)}
+      </span>`
+  }
+}
+
+
+async function editSlot(s) {
+
+  const tm = prompt(
+    "Время ЧЧ:ММ",
+    s.time
+  )
+
+  if (tm === null) {
+    return
+  }
+
+  const dur = prompt(
+    "Длительность",
+    s.duration
+  )
+
+  if (dur === null) {
+    return
+  }
+
+  const cap = prompt(
+    "Вместимость",
+    s.capacity
+  )
+
+  if (cap === null) {
+    return
+  }
+
+  try {
+
+    await api(
+      `/api/admin/slots/${encodeURIComponent(
+        s.id
+      )}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          init_data: initData(),
+          date: s.date,
+          time: tm,
+          duration: Number(dur),
+          capacity: Number(cap)
+        })
+      }
+    )
+
+    toast("Слот изменён")
+
+    loadAdminSlots()
+    loadRoster()
+    loadWeek()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function deleteSlot(id) {
+
+  if (!confirm("Удалить слот?")) {
+    return
+  }
+
+  try {
+
+    await api(
+      `/api/admin/slots/${encodeURIComponent(
+        id
+      )}?init_data=${encodeURIComponent(
+        initData()
+      )}`,
+      {
+        method: "DELETE"
+      }
+    )
+
+    toast("Слот удалён")
+
+    loadAdminSlots()
+    loadRoster()
+    loadWeek()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+function renderClients() {
+
+  $("clients").innerHTML =
+    clients.length
+      ? clients.map(
+          c => `
+            <div class="listitem">
+
+              <div class="row">
+
+                <div>
+
+                  <b>
+                    ${esc(
+                      c.first_name ||
+                      "Без имени"
+                    )}
+                  </b>
+
+                  <div class="meta">
+                    ${esc(
+                      c.username
+                        ? "@" + c.username
+                        : "ID " + c.telegram_id
+                    )}
+                  </div>
+
+                </div>
+
+                <button
+                  class="btn secondary"
+                  onclick="openClient(${c.telegram_id})">
+
+                  Открыть
+
+                </button>
+
+              </div>
+
+            </div>
+          `
+        ).join("")
+      : `
+        <div class="muted">
+          Клиенты появятся после первого открытия Mini App.
+        </div>
+      `
+}
+
+
+function openClient(id) {
+
+  const c =
+    clients.find(
+      x => x.telegram_id === id
+    )
+
+  if (!c) {
+    return
+  }
+
+  const k =
+    c.kbju || {
+      calories: "",
+      protein: "",
+      fat: "",
+      carbs: ""
+    }
+
+  $("clientEditor")
+    .classList
+    .remove("hidden")
+
+  $("clientEditor").innerHTML = `
+
+    <div
+      class="card"
+      style="margin:12px 0 0">
+
+      <div class="row">
+
+        <h3>
+          ${esc(c.first_name || "Клиент")}
+        </h3>
+
+        <button
+          class="btn secondary"
+          onclick="$('clientEditor').classList.add('hidden')">
+
+          Закрыть
+
+        </button>
+
+      </div>
+
+      <label>
+        Тренировочная программа
+      </label>
+
+      <textarea id="ptext">${esc(
+        c.program_text || ""
+      )}</textarea>
+
+      <button
+        class="btn"
+        style="margin-top:8px"
+        onclick="saveProgram(${id})">
+
+        Сохранить программу
+
+      </button>
+
+
+      <h3 style="margin-top:16px">
+        КБЖУ
+      </h3>
+
+      <div class="grid3">
+
+        <div>
+          <label>Ккал</label>
+          <input
+            id="kc"
+            type="number"
+            value="${k.calories ?? ""}">
+        </div>
+
+        <div>
+          <label>Белок</label>
+          <input
+            id="kp"
+            type="number"
+            value="${k.protein ?? ""}">
+        </div>
+
+        <div>
+          <label>Жиры</label>
+          <input
+            id="kf"
+            type="number"
+            value="${k.fat ?? ""}">
+        </div>
+
+        <div>
+          <label>Углеводы</label>
+          <input
+            id="ku"
+            type="number"
+            value="${k.carbs ?? ""}">
+        </div>
+
+      </div>
+
+      <button
+        class="btn cyan"
+        style="margin-top:8px"
+        onclick="saveKbju(${id})">
+
+        Сохранить КБЖУ
+
+      </button>
+
+    </div>
+  `
+
+  $("clientEditor")
+    .scrollIntoView({
+      behavior: "smooth"
+    })
+}
+
+
+async function saveProgram(id) {
+
+  try {
+
+    await api(
+      `/api/admin/clients/${id}/program`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          init_data: initData(),
+          program_text: $("ptext").value
+        })
+      }
+    )
+
+    toast("Программа сохранена")
+
+    loadTrainer()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function saveKbju(id) {
+
+  try {
+
+    await api(
+      `/api/admin/clients/${id}/kbju`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          init_data: initData(),
+          calories: Number($("kc").value),
+          protein: Number($("kp").value),
+          fat: Number($("kf").value),
+          carbs: Number($("ku").value)
+        })
+      }
+    )
+
+    toast("КБЖУ сохранено")
+
+    loadTrainer()
+
+  } catch (e) {
+
+    toast(e.message, true)
+  }
+}
+
+
+async function loadRoster() {
+
+  const d = $("rosterDate").value
+
+  if (!d) {
+    return
+  }
+
+  try {
+
+    const x = await api(
+      `/api/admin/roster?date_value=${encodeURIComponent(
+        d
+      )}&init_data=${encodeURIComponent(
+        initData()
+      )}`
+    )
+
+    $("roster").innerHTML =
+      x.slots.length
+        ? x.slots.map(
+            s => `
+              <div class="listitem">
+
+                <div class="row">
+
+                  <b>${s.time}</b>
+
+                  <span class="meta">
+                    ${s.bookings.length}/${s.capacity}
+                  </span>
+
+                </div>
+
+                ${
+                  s.bookings.length
+                    ? s.bookings.map(
+                        b => `
+                          <div style="margin-top:6px">
+
+                            ${esc(
+                              b.name || "Клиент"
+                            )}
+
+                            <span class="meta">
+                              ID ${b.telegram_id}
+                            </span>
+
+                          </div>
+                        `
+                      ).join("")
+                    : `
+                      <div
+                        class="meta"
+                        style="margin-top:6px">
+
+                        Записей нет
+
+                      </div>
+                    `
+                }
+
+              </div>
+            `
+          ).join("")
+        : `
+          <div class="muted">
+            Слотов нет.
+          </div>
+        `
+
+  } catch (e) {
+
+    $("roster").innerHTML =
+      `<span class="error">
+        ${esc(e.message)}
+      </span>`
+  }
+}
+
+
+boot()
+
+</script>
+
+</body>
+</html>
